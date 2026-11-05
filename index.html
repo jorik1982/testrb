@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Тестирование — Радиационная безопасность</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; color: #fff;
+  }
+  .card {
+    background: #ffffff; color: #222;
+    width: 100%; max-width: 640px;
+    border-radius: 16px; padding: 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  }
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
+  .settings label { display: block; font-weight: 600; margin: 18px 0 8px; font-size: 15px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opt {
+    padding: 9px 16px; border: 2px solid #d7dee8; border-radius: 999px;
+    background: #f7f9fc; cursor: pointer; font-size: 14px; user-select: none; transition: all .15s;
+  }
+  .opt:hover { border-color: #2a5298; }
+  .opt.active { border-color: #2a5298; background: #2a5298; color: #fff; }
+  .progress { background: #e9eef5; border-radius: 999px; height: 10px; overflow: hidden; margin-bottom: 8px; }
+  .progress-bar { background: #2a5298; height: 100%; width: 0%; transition: width .3s; }
+  .topline { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .qcounter { font-size: 13px; color: #888; }
+  .timer { font-size: 15px; font-weight: 700; color: #2a5298; font-variant-numeric: tabular-nums; }
+  .timer.danger { color: #d64545; }
+  .question { font-size: 19px; font-weight: 600; margin-bottom: 20px; line-height: 1.4; }
+  .answers { display: flex; flex-direction: column; gap: 12px; }
+  .answer {
+    text-align: left; padding: 14px 18px;
+    border: 2px solid #d7dee8; border-radius: 12px;
+    background: #f7f9fc; cursor: pointer; font-size: 16px;
+    transition: all .15s;
+  }
+  .answer:hover:not(:disabled) { border-color: #2a5298; background: #eef3fb; }
+  .answer:disabled { cursor: default; }
+  .answer.correct { border-color: #2e9e5b; background: #e2f6e9; color: #1c6b3c; }
+  .answer.wrong { border-color: #d64545; background: #fdeaea; color: #a02c2c; }
+  .feedback { margin-top: 18px; font-size: 16px; font-weight: 600; min-height: 24px; }
+  .feedback.ok { color: #2e9e5b; }
+  .feedback.bad { color: #d64545; }
+  .btn {
+    margin-top: 20px; padding: 13px 28px; border: none; border-radius: 12px;
+    background: #2a5298; color: #fff; font-size: 16px; cursor: pointer;
+  }
+  .btn:hover { background: #1e3c72; }
+  .btn.big { width: 100%; font-size: 18px; padding: 15px; }
+  .hidden { display: none; }
+  .result { text-align: center; }
+  .result .score { font-size: 48px; font-weight: 800; color: #2a5298; margin: 12px 0; }
+  .verdict { font-size: 22px; font-weight: 700; margin: 10px 0; }
+  .verdict.pass { color: #2e9e5b; }
+  .verdict.fail { color: #d64545; }
+</style>
+</head>
+<body>
+
+<!-- Экран настроек -->
+<div class="card" id="setup-card">
+  <h1>📝 Тестирование</h1>
+  <p class="subtitle">Радиационная безопасность — выбери настройки и начинай</p>
+  <div class="settings">
+    <label>Количество вопросов:</label>
+    <div class="opts" id="count-opts">
+      <span class="opt" data-v="10">10</span>
+      <span class="opt" data-v="20">20</span>
+      <span class="opt active" data-v="30">30</span>
+      <span class="opt" data-v="all">Все (52)</span>
+    </div>
+    <label>Таймер:</label>
+    <div class="opts" id="timer-opts">
+      <span class="opt" data-v="off">Без таймера</span>
+      <span class="opt active" data-v="on">С таймером (60 сек на вопрос)</span>
+    </div>
+    <label>Проходной балл: 70% (ниже — тест не пройден)</label>
+  </div>
+  <button class="btn big" onclick="startQuiz()">Начать тест ▶</button>
+</div>
+
+<!-- Экран теста -->
+<div class="card hidden" id="quiz-card">
+  <div class="progress"><div class="progress-bar" id="bar"></div></div>
+  <div class="topline">
+    <span class="qcounter" id="qcounter"></span>
+    <span class="timer hidden" id="timer"></span>
+  </div>
+  <div class="question" id="question"></div>
+  <div class="answers" id="answers"></div>
+  <div class="feedback" id="feedback"></div>
+  <button class="btn hidden" id="next-btn">Следующий вопрос →</button>
+</div>
+
+<!-- Результат -->
+<div class="card hidden result" id="result-card">
+  <h1>🏁 Тест завершён!</h1>
+  <div class="score" id="score"></div>
+  <div class="verdict" id="verdict"></div>
+  <p id="result-text"></p>
+  <button class="btn" onclick="location.reload()">Пройти ещё раз</button>
+</div>
+
+<script src="questions.js"></script>
+<script>
+let quiz = [], current = 0, score = 0;
+let countChoice = 30, timerOn = true, timerId = null, timeLeft = 0;
+const PASS = 0.70;
+
+// --- Настройки ---
+function bindOpts(id, cb) {
+  document.querySelectorAll('#' + id + ' .opt').forEach(el => {
+    el.onclick = () => {
+      document.querySelectorAll('#' + id + ' .opt').forEach(o => o.classList.remove('active'));
+      el.classList.add('active');
+      cb(el.dataset.v);
+    };
+  });
+}
+bindOpts('count-opts', v => countChoice = v === 'all' ? QUESTIONS.length : +v);
+bindOpts('timer-opts', v => timerOn = v === 'on');
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startQuiz() {
+  quiz = shuffle([...QUESTIONS]).slice(0, Math.min(countChoice, QUESTIONS.length));
+  // перемешиваем и варианты ответов в каждом вопросе
+  quiz = quiz.map(q => {
+    const idx = q.answers.map((_, i) => i);
+    shuffle(idx);
+    return { question: q.question, answers: idx.map(i => q.answers[i]), correct: idx.indexOf(q.correct) };
+  });
+  current = 0; score = 0;
+  document.getElementById('setup-card').classList.add('hidden');
+  document.getElementById('quiz-card').classList.remove('hidden');
+  render();
+}
+
+function render() {
+  stopTimer();
+  const q = quiz[current];
+  document.getElementById('qcounter').textContent = `Вопрос ${current + 1} из ${quiz.length}`;
+  document.getElementById('bar').style.width = (current / quiz.length * 100) + '%';
+  document.getElementById('question').textContent = q.question;
+  const fb = document.getElementById('feedback');
+  fb.textContent = ''; fb.className = 'feedback';
+  document.getElementById('next-btn').classList.add('hidden');
+  const box = document.getElementById('answers');
+  box.innerHTML = '';
+  q.answers.forEach((a, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'answer';
+    btn.textContent = a;
+    btn.onclick = () => check(i, btn);
+    box.appendChild(btn);
+  });
+  startTimer();
+}
+
+function startTimer() {
+  const t = document.getElementById('timer');
+  if (!timerOn) { t.classList.add('hidden'); return; }
+  t.classList.remove('hidden');
+  timeLeft = 60;
+  updateTimer();
+  timerId = setInterval(() => {
+    timeLeft--;
+    updateTimer();
+    if (timeLeft <= 0) { stopTimer(); timeUp(); }
+  }, 1000);
+}
+function updateTimer() {
+  const t = document.getElementById('timer');
+  t.textContent = '⏱ ' + Math.floor(timeLeft / 60) + ':' + String(timeLeft % 60).padStart(2, '0');
+  t.classList.toggle('danger', timeLeft <= 10);
+}
+function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
+
+function timeUp() {
+  const q = quiz[current];
+  const fb = document.getElementById('feedback');
+  document.querySelectorAll('.answer').forEach((b, i) => {
+    b.disabled = true;
+    if (i === q.correct) b.classList.add('correct');
+  });
+  fb.textContent = '⏰ Время вышло! Правильный ответ подсвечен зелёным.';
+  fb.classList.add('bad');
+  document.getElementById('bar').style.width = ((current + 1) / quiz.length * 100) + '%';
+  const next = document.getElementById('next-btn');
+  next.classList.remove('hidden');
+  next.textContent = current === quiz.length - 1 ? 'Показать результат →' : 'Следующий вопрос →';
+}
+
+function check(i, btn) {
+  stopTimer();
+  const q = quiz[current];
+  const fb = document.getElementById('feedback');
+  document.querySelectorAll('.answer').forEach((b, j) => {
+    b.disabled = true;
+    if (j === q.correct) b.classList.add('correct');
+  });
+  if (i === q.correct) {
+    score++;
+    fb.textContent = '✅ Правильно!';
+    fb.classList.add('ok');
+  } else {
+    btn.classList.add('wrong');
+    fb.textContent = '❌ Неправильно! Правильный ответ подсвечен зелёным.';
+    fb.classList.add('bad');
+  }
+  document.getElementById('bar').style.width = ((current + 1) / quiz.length * 100) + '%';
+  const next = document.getElementById('next-btn');
+  next.classList.remove('hidden');
+  next.textContent = current === quiz.length - 1 ? 'Показать результат →' : 'Следующий вопрос →';
+}
+
+document.getElementById('next-btn').onclick = () => {
+  current++;
+  if (current >= quiz.length) showResult();
+  else render();
+};
+
+function showResult() {
+  stopTimer();
+  document.getElementById('quiz-card').classList.add('hidden');
+  document.getElementById('result-card').classList.remove('hidden');
+  const pct = score / quiz.length;
+  document.getElementById('score').textContent = `${score} / ${quiz.length} (${Math.round(pct * 100)}%)`;
+  const v = document.getElementById('verdict');
+  if (pct >= PASS) { v.textContent = '🎉 ТЕСТ ПРОЙДЕН!'; v.className = 'verdict pass'; }
+  else { v.textContent = '❌ ТЕСТ НЕ ПРОЙДЕН'; v.className = 'verdict fail'; }
+  document.getElementById('result-text').textContent =
+    pct >= PASS
+      ? (pct === 1 ? 'Идеально! Все ответы верные!' : 'Отличный результат, проходной балл 70% набран 👏')
+      : 'Набрано меньше 70% — стоит повторить материал и пройти тест ещё раз 📖';
+}
+</script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a55d8564fd39b17e',t:'MTc5Mzg5OTE0MQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a55d8564fd39b17e',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
